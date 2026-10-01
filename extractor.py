@@ -1,62 +1,65 @@
 import os
-import zlib
 
-def reparar_archivo(ruta_entrada, ruta_salida):
+def extraer_jpg_puro(ruta_entrada, ruta_salida):
     try:
         with open(ruta_entrada, 'rb') as f:
             datos = f.read()
         
-        # El logo PNG suele ocupar los primeros bytes.
-        # Buscamos las firmas de compresión Zlib comunes (78 01, 78 9C, 78 DA)
-        firmas_zlib = [b'\x78\x01', b'\x78\x9c', b'\x78\xda']
+        # Una imagen JPG real de cámara empieza con \xFF\xD8\xFF y termina con \xFF\xD9
+        cabecera_jpg = b'\xff\xd8\xff'
+        fin_jpg = b'\xff\xd9'
         
-        inicio_zlib = -1
-        for firma in firmas_zlib:
-            # Empezamos a buscar después del byte 32 para saltarnos el logo PNG básico
-            pos = datos.find(firma, 32)
-            if pos != -1:
-                inicio_zlib = pos
-                break 
+        # Buscamos la cabecera JPG saltándonos el logo falso de Keepsafe del inicio (primeros 100 bytes)
+        inicio = datos.find(cabecera_jpg, 100)
+        
+        if inicio == -1:
+            # Si no la encuentra, buscamos desde el byte 32 por si acaso
+            inicio = datos.find(cabecera_jpg, 32)
+            
+        if inicio != -1:
+            # Buscamos el final de la imagen a partir de donde empezó
+            final = datos.find(fin_jpg, inicio)
+            
+            if final != -1:
+                # Extraemos el bloque exacto de la foto original
+                foto_limpia = datos[inicio:final+2]
+            else:
+                # Si el final no se encuentra limpio, extraemos todo el resto del archivo
+                foto_limpia = datos[inicio:]
                 
-        if inicio_zlib == -1:
-            print(f"[-] No se encontró compresión válida en: {ruta_entrada}")
-            return False
-
-        # Intentamos descomprimir el bloque a partir de la firma encontrada
-        try:
-            datos_descomprimidos = zlib.decompress(datos[inicio_zlib:])
             with open(ruta_salida, 'wb') as f_out:
-                f_out.write(datos_descomprimidos)
-            print(f"[+] ¡ÉXITO! Recuperado: {ruta_salida}")
+                f_out.write(foto_limpia)
+            print(f"[+] ¡ÉXITO! Foto extraída directamente en: {ruta_salida}")
             return True
-        except zlib.error:
-            # Si falla el header estricto, intentamos con modo raw (ignora los bytes del header zlib)
-            try:
-                datos_descomprimidos = zlib.decompress(datos[inicio_zlib:], -zlib.MAX_WBITS)
-                with open(ruta_salida, 'wb') as f_out:
-                    f_out.write(datos_descomprimidos)
-                print(f"[+] ¡ÉXITO (Modo Raw)! Recuperado: {ruta_salida}")
+        else:
+            # Intentemos buscar un formato PNG por si era una captura de pantalla oculta
+            inicio_png = datos.find(b'\x89PNG', 32)
+            if inicio_png != -1:
+                with open(ruta_salida.replace('.jpg', '.png'), 'wb') as f_out:
+                    f_out.write(datos[inicio_png:])
+                print(f"[+] ¡ÉXITO! Captura PNG encontrada y extraída en: {ruta_salida.replace('.jpg', '.png')}")
                 return True
-            except Exception as e:
-                print(f"[-] Error al descomprimir {ruta_entrada}: {e}")
-                return False
+                
+            print(f"[-] No se encontró estructura de imagen oculta en: {ruta_entrada}")
+            return False
+            
     except Exception as e:
-        print(f"[-] No se pudo leer {ruta_entrada}: {e}")
+        print(f"[-] Error al procesar {ruta_entrada}: {e}")
         return False
 
-# Procesar todos los archivos .jpg o .ksd de la carpeta actual
+# Procesar todos los archivos de la carpeta
 carpeta_actual = os.getcwd()
 archivos = [f for f in os.listdir(carpeta_actual) if f.endswith('.jpg') or f.endswith('.ksd')]
 
-print(f"Encontrados {len(archivos)} archivos para procesar...")
+print(f"Escaneando {len(archivos)} archivos en busca de imágenes reales...")
 contador = 0
 
 for ARCHIVO in archivos:
-    # Evitar procesar los ya recuperados
-    if ARCHIVO.startswith("RECUPERADA_"):
+    if ARCHIVO.startswith("FOTO_REAL_"):
         continue
-    nombre_salida = f"RECUPERADA_{ARCHIVO}.jpg"
-    if reparar_archivo(ARCHIVO, nombre_salida):
+    nombre_salida = f"FOTO_REAL_{ARCHIVO}.jpg"
+    if extraer_jpg_puro(ARCHIVO, nombre_salida):
         contador += 1
 
-print(f"\nProceso terminado. Se recuperaron exitosamente {contador} fotos.")
+print(f"\nProceso terminado. Se rescataron {contador} imágenes originales.")
+

@@ -16,7 +16,7 @@ def reparar_archivo(ruta_entrada, ruta_salida):
             pos = datos.find(firma, 32)
             if pos != -1:
                 inicio_zlib = pos
-                break
+                break 
                 
         if inicio_zlib == -1:
             print(f"[-] No se encontró compresión válida en: {ruta_entrada}")
